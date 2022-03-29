@@ -1,6 +1,6 @@
 This repository includes codes for [my personal blog](dhwon.com).
 
-**Please note that I'm using MacOS and haven't tested on any other operating systems. I'm not doing anything fancy so the code should run on other systems, but I can't guarantee.**
+**Please note that I'm using MacOS and haven't tested on any other operating systems. I'm not doing anything fancy so the code should run on other systems too, but I can't guarantee.**
 
 # Enviroment setup
 1. Install [miniconda](https://docs.conda.io/en/latest/miniconda.html). 
