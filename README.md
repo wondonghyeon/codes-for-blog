@@ -13,7 +13,7 @@ conda activate your_env_name
 ```sh
 pip install -r requirements.txt
 ```
-4. Add your virtual env to jupyter lab. 
+4. Add your virtual env to ipykernel so we can use the enviroment on jupyter notebook. 
 ```sh
 python -m ipykernel install --user --name=your_env_name  # name can be anything
 ```
