@@ -3,3 +3,6 @@ earthengine-api
 seaborn
 numpy
 tqdm
+scipy
+matplotlib
+folium
