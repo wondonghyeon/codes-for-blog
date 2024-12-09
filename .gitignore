@@ -1,3 +1,7 @@
 *.csv
 .ipynb_checkpoints
 .DS_Store
+.env
+__pycache__/
+earthengine_outputs/
+*.pyc
