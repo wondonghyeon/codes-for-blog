@@ -27,7 +27,7 @@ def get_landsat_collection(roi: ee.Geometry, start_date: datetime, end_date: dat
     :param end_date: The end date for the date range.
     :return: The median Landsat image for the specified date range.
     """
-    assert start_date.year == end_date.year, "Start and end date must be within the same year."
+    assert start_date < end_date, "Start date must be before end date."
 
     start_year = start_date.year
     start_date_str = start_date.strftime("%Y-%m-%d")
@@ -58,13 +58,13 @@ def get_landsat_collection(roi: ee.Geometry, start_date: datetime, end_date: dat
     )
 
 
-def get_city_boundary(city_name: str) -> ee.Geometry:
+def get_place_boundary(place_name: str) -> ee.Geometry:
     """
-    Retrieves the boundary geometry for a given city name.
+    Retrieves the boundary geometry for a given place name.
 
-    :param city_name: The name of the city for which to retrieve the boundary.
-    :returns: The geometry of the city's boundary if found, otherwise None.
+    :param place_name: The name of the place for which to retrieve the boundary.
+    :returns: The geometry of the place's boundary if found, otherwise None.
     """
-    logger.debug(f"Retrieving boundary for city {city_name}")
-    city_geometry_gdf = osmnx.geocode_to_gdf(city_name)
-    return geemap.geopandas_to_ee(city_geometry_gdf)
+    logger.debug(f"Retrieving boundary for place {place_name}")
+    place_geometry_gdf = osmnx.geocode_to_gdf(place_name)
+    return geemap.geopandas_to_ee(place_geometry_gdf)

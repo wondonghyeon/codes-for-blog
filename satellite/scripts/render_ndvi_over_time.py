@@ -1,3 +1,11 @@
+"""
+Script to render NDVI over time for a place using Landsat data.
+Usage:
+    python render_ndvi_over_time.py yearly_average_change --place_name "New York" --start_year 2015 --end_year 2020 \
+            --output_dir "output"
+    python render_ndvi_over_time.py monthly_average_change --place_name "South Korea" --start_year 2015 \
+            --start_month 1 --end_year 2020 --end_month 12 --output_dir "output"
+"""
 from __future__ import annotations
 
 import concurrent.futures
@@ -16,8 +24,8 @@ import rasterio
 from PIL import Image
 from tqdm import tqdm
 
-from satellite.utils import get_city_boundary
 from satellite.utils import get_landsat_collection
+from satellite.utils import get_place_boundary
 
 
 def _initialize_ee() -> None:
@@ -36,8 +44,9 @@ def _set_logging_level(log_level: str) -> None:
     logging.basicConfig(level=numeric_level)
 
 
-def _create_gif_from_tiff_dir(tiff_dir: str, output_gif: str, city_name: str) -> None:
+def _create_gif_from_tiff_dir(tiff_dir: str, output_gif: str, place_name: str, mode: str) -> None:
     """Create a GIF from a directory containing TIFF files."""
+    assert mode in ["yearly", "monthly"], f"Invalid mode: {mode}"
     # Get a sorted list of TIFF files
     tiff_fpaths = sorted(
         [os.path.join(tiff_dir, fname) for fname in os.listdir(tiff_dir) if fname.endswith(".tif")],
@@ -60,8 +69,14 @@ def _create_gif_from_tiff_dir(tiff_dir: str, output_gif: str, city_name: str) ->
             plt.figure(figsize=(8, 6))
             plt.imshow(ndvi, cmap="RdYlGn", vmin=vmin, vmax=vmax)
             plt.colorbar(label="NDVI")
-            year = tiff_fpath.split("_")[-1].split(".")[0]
-            plt.title(f"NDVI - {city_name} - {year}")
+            if mode == "monthly":
+                month = tiff_fpath.split("_")[-1].split(".")[0].split("-")[1]
+                month = tiff_fpath.split("_")[-1].split(".")[0].split("-")[1]
+                year = tiff_fpath.split("_")[-1].split(".")[0].split("-")[0]
+                plt.title(f"NDVI - {place_name} - {year}/{month}")
+            else:
+                year = tiff_fpath.split("_")[-1].split(".")[0]
+                plt.title(f"NDVI - {place_name} - {year}")
             plt.axis("off")
 
             # Save the plot to a buffer
@@ -84,15 +99,20 @@ def _create_gif_from_tiff_dir(tiff_dir: str, output_gif: str, city_name: str) ->
     logger.debug(f"GIF saved as {output_gif}")
 
 
-def _generate_average_ndvi_plot(tiff_dir: str, plot_fpath: str, city_name: str) -> None:
+def _generate_average_ndvi_plot(tiff_dir: str, plot_fpath: str, place_name: str, mode: str) -> None:
     """Generate a plot of average NDVI over time."""
+    assert mode in ["yearly", "monthly"], f"Invalid mode: {mode}"
     tiff_fpaths = sorted(
         [os.path.join(tiff_dir, fname) for fname in os.listdir(tiff_dir) if fname.endswith(".tif")],
     )
     for tiff_fpath in tiff_fpaths:
         assert tiff_fpath.endswith(".tif"), f"Invalid TIFF file: {tiff_fpath}"
         # assert file endes with years
-        assert tiff_fpath.split("_")[-1].split(".")[0].isdigit(), f"Invalid TIFF file: {tiff_fpath}"
+        if mode == "monthly":
+            assert tiff_fpath.split("_")[-1].split(".")[0].split("-")[0].isdigit(), f"Invalid TIFF file: {tiff_fpath}"
+            assert tiff_fpath.split("_")[-1].split(".")[0].split("-")[1].isdigit(), f"Invalid TIFF file: {tiff_fpath}"
+        else:
+            assert tiff_fpath.split("_")[-1].split(".")[0].isdigit(), f"Invalid TIFF file: {tiff_fpath}"
 
     # List to store average NDVI values
     avg_ndvi_values = []
@@ -108,30 +128,45 @@ def _generate_average_ndvi_plot(tiff_dir: str, plot_fpath: str, city_name: str) 
             avg_ndvi_values.append(avg_ndvi)
 
     # Extract years from the file names
-    years = [int(tiff_fpath.split("_")[-1].split(".")[0]) for tiff_fpath in tiff_fpaths]
+    if mode == "monthly":
+        x = [
+            datetime.datetime.strptime(
+                f"{tiff_fpath.split('_')[-1].split('.')[0].split('-')[0]}-"
+                f"{tiff_fpath.split('_')[-1].split('.')[0].split('-')[1]}",
+                "%Y-%m",
+            )
+            for tiff_fpath in tiff_fpaths
+        ]
+    else:
+        x = [datetime.datetime.strptime(tiff_fpath.split("_")[-1].split(".")[0], "%Y") for tiff_fpath in tiff_fpaths]
 
     # Plot the average NDVI over time
     plt.figure(figsize=(10, 6))
-    plt.plot(years, avg_ndvi_values, marker="o", linestyle="-", color="b")
-    plt.xlabel("Year")
+    plt.plot(x, avg_ndvi_values, marker="o", linestyle="-", color="b")
+    plt.xlabel("Time")
     plt.ylabel("Average NDVI")
-    plt.title(f"Average NDVI Over Time - {city_name}")
+    plt.title(f"Average NDVI Over Time - {place_name}")
     plt.grid(True)
     plt.savefig(plot_fpath)
     plt.close()
 
 
-def _process_year(year: int, roi, tiff_output_dir: str, scale: int = 100) -> None:
-    """Process NDVI for a single year."""
+def _process_date_range(
+    start_date: datetime.datetime,
+    end_date: datetime.datetime,
+    roi,
+    tiff_output_dir: str,
+    suffix: str,
+    scale: int = 100,
+) -> None:
+    """Process NDVI for a date range."""
     _initialize_ee()
-    logger.debug(f"Processing year {year}")
-    start_date = datetime.datetime(year, 1, 1)
-    end_date = datetime.datetime(year, 12, 31)
+    logger.debug(f"Processing date range {start_date} to {end_date}")
     landsat_data = get_landsat_collection(roi, start_date, end_date)
     logger.debug(f"Landsat data: {landsat_data.getInfo()}")
-    ndvi = landsat_data.normalizedDifference(["NIR", "RED"]).rename(f"NDVI_{year}")
+    ndvi = landsat_data.normalizedDifference(["NIR", "RED"]).rename(f"NDVI_{suffix}")
     logger.debug(f"NDVI: {ndvi.getInfo()}")
-    output_fpath = os.path.join(tiff_output_dir, f"ndvi_{year}.tif")
+    output_fpath = os.path.join(tiff_output_dir, f"ndvi_{suffix}.tif")
     logger.debug(f"Exporting NDVI image to {output_fpath}")
     geemap.ee_export_image(
         ndvi,
@@ -139,12 +174,29 @@ def _process_year(year: int, roi, tiff_output_dir: str, scale: int = 100) -> Non
         scale=scale,
         region=roi,
         file_per_band=False,
+        timeout=600,
     )
     logger.debug(f"Exported NDVI image to {output_fpath}")
 
 
-def main(
-    city_name: str,
+def _process_month(month: int, year: int, roi, tiff_output_dir: str, scale: int = 100) -> None:
+    """Process NDVI for a single month."""
+    start_date = datetime.datetime(year, month, 1)
+    end_date = datetime.datetime(year, month + 1, 1) if month < 12 else datetime.datetime(year + 1, 1, 1)
+    suffix = f"{year}-{month:02d}"
+    _process_date_range(start_date, end_date, roi, tiff_output_dir, suffix, scale)
+
+
+def _process_year(year: int, roi, tiff_output_dir: str, scale: int = 100) -> None:
+    """Process NDVI for a single year."""
+    start_date = datetime.datetime(year, 1, 1)
+    end_date = datetime.datetime(year, 12, 31)
+    suffix = f"{year}"
+    _process_date_range(start_date, end_date, roi, tiff_output_dir, suffix, scale)
+
+
+def yearly_average_change(
+    place_name: str,
     start_year: int,
     end_year: int,
     output_dir: str,
@@ -153,9 +205,9 @@ def main(
     scale: int = 100,
 ) -> None:
     """
-    Render NDVI over time for the specified city.
+    Render yearly average NDVI over time for the specified place.
 
-    :param city_name: The name of the city for which to render NDVI over time.
+    :param place_name: The name of the place for which to render NDVI over time.
     :param start_year: The start year for the NDVI time series.
     :param end_year: The end year for the NDVI time series.
     :param output_dir: The output directory for the rendered GIF and plots.
@@ -165,10 +217,10 @@ def main(
     """
     _set_logging_level(log_level)
     _initialize_ee()
-    output_dir = os.path.join(output_dir, city_name)
-    tiff_output_dir = os.path.join(output_dir, "tiff")
+    output_dir = os.path.join(output_dir, place_name)
+    tiff_output_dir = os.path.join(output_dir, "tiff_yearly")
     os.makedirs(tiff_output_dir, exist_ok=True)
-    roi = get_city_boundary(city_name).geometry()
+    roi = get_place_boundary(place_name).geometry()
 
     # Process NDVI for each year in parallel
     with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
@@ -180,13 +232,63 @@ def main(
             future.result()
 
     # Create GIF from TIFF files
-    output_gif = os.path.join(output_dir, "ndvi_over_time.gif")
-    _create_gif_from_tiff_dir(tiff_output_dir, output_gif, city_name)
+    output_gif = os.path.join(output_dir, "ndvi_over_time_yearly.gif")
+    _create_gif_from_tiff_dir(tiff_output_dir, output_gif, place_name, mode="yearly")
 
     # Generate average NDVI plot
-    plot_fpath = os.path.join(output_dir, "average_ndvi.png")
-    _generate_average_ndvi_plot(tiff_output_dir, plot_fpath, city_name)
+    plot_fpath = os.path.join(output_dir, "average_ndvi_yearly.png")
+    _generate_average_ndvi_plot(tiff_output_dir, plot_fpath, place_name, mode="yearly")
+
+
+def monthly_average_change(
+    place_name: str,
+    start_year: int,
+    start_month: int,
+    end_year: int,
+    end_month: int,
+    output_dir: str,
+    n_workers: int = 8,
+    log_level: str = "INFO",
+    scale: int = 100,
+) -> None:
+    """
+    Render monthly NDVI over time for the specified place.
+
+    :param place_name: The name of the place for which to render NDVI over time.
+    :param start_year: The start year for the NDVI time series.
+    :param start_month: The start month for the NDVI time series.
+    :param end_year: The end year for the NDVI time series.
+    :param end_month: The end month for the NDVI time series.
+    :param output_dir: The output directory for the rendered GIF and plots.
+    :param n_workers: The number of workers to use for parallel processing.
+    :param log_level: The logging level.
+    :param scale: The scale for exporting NDVI images.
+    """
+    _set_logging_level(log_level)
+    _initialize_ee()
+    output_dir = os.path.join(output_dir, place_name)
+    tiff_output_dir = os.path.join(output_dir, "tiff_monthly")
+    os.makedirs(tiff_output_dir, exist_ok=True)
+    roi = get_place_boundary(place_name).geometry()
+
+    # Process NDVI for each month in parallel
+    with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+        futures = [
+            executor.submit(_process_month, month, year, roi, tiff_output_dir, scale)
+            for year in range(start_year, end_year + 1)
+            for month in range(start_month, end_month + 1)
+        ]
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+            future.result()
+
+    # Create GIF from TIFF files
+    output_gif = os.path.join(output_dir, "ndvi_over_time_monthly.gif")
+    _create_gif_from_tiff_dir(tiff_output_dir, output_gif, place_name, mode="monthly")
+
+    # Generate average NDVI plot
+    plot_fpath = os.path.join(output_dir, "average_ndvi_monthly.png")
+    _generate_average_ndvi_plot(tiff_output_dir, plot_fpath, place_name, mode="monthly")
 
 
 if __name__ == "__main__":
-    fire.Fire(main)
+    fire.Fire()
