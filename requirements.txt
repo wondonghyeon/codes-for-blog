@@ -1,11 +1,15 @@
 earthengine-api
+fire
 folium
 geemap
+geopandas
 jupyter
 matplotlib
 numpy
+osmnx
 pandas
 pre-commit
+pyogrio
 rasterio
 scipy
 seaborn

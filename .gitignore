@@ -5,3 +5,5 @@
 __pycache__/
 earthengine_outputs/
 *.pyc
+tmp/
+cache/
