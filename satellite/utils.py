@@ -1,9 +1,14 @@
-"""Utility functions for satellite package."""
+"""Utility functions for the satellite image analysis project."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import ee
+import geemap
+import osmnx
+
+logger = logging.getLogger(__name__)
 
 
 def get_landsat_collection(roi: ee.Geometry, start_date: datetime, end_date: datetime) -> ee.Image:
@@ -41,6 +46,8 @@ def get_landsat_collection(roi: ee.Geometry, start_date: datetime, end_date: dat
         dataset_name = "LANDSAT/LT05/C02/T1_L2"
         bands = ["SR_B4", "SR_B3"]
 
+    logger.debug(f"Retrieving Landsat data {dataset_name} ({bands}) for {start_date_str} to {end_date_str}")
+
     return (
         ee.ImageCollection(dataset_name)
         .filterBounds(roi)
@@ -49,3 +56,15 @@ def get_landsat_collection(roi: ee.Geometry, start_date: datetime, end_date: dat
         .map(lambda image: image.rename(["NIR", "RED"]))
         .median()
     )
+
+
+def get_city_boundary(city_name: str) -> ee.Geometry:
+    """
+    Retrieves the boundary geometry for a given city name.
+
+    :param city_name: The name of the city for which to retrieve the boundary.
+    :returns: The geometry of the city's boundary if found, otherwise None.
+    """
+    logger.debug(f"Retrieving boundary for city {city_name}")
+    city_geometry_gdf = osmnx.geocode_to_gdf(city_name)
+    return geemap.geopandas_to_ee(city_geometry_gdf)
